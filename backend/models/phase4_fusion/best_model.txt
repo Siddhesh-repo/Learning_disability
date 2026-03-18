@@ -1,0 +1,4 @@
+Best Model: random_forest
+Model Path: random_forest_20260316_001951.pkl
+Accuracy: 1.0000
+F1-Score: 1.0000

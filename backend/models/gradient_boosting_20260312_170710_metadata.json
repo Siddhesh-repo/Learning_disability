@@ -1,0 +1,9 @@
+{
+  "model_type": "gradient_boosting",
+  "created": "20260312_170710",
+  "is_trained": true,
+  "history": {
+    "train_accuracy": 1.0,
+    "val_accuracy": 1.0
+  }
+}

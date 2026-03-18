@@ -1,0 +1,107 @@
+{
+  "phase": "phase2_handwriting",
+  "created_at": "2026-03-15T23:41:31.041384",
+  "manifest": "/Users/siddheshsunilpote/Desktop/Learning_disability/learning_disability/backend/data/processed/handwriting_manifest_labeled_phase1.csv",
+  "feature_dataset": "/Users/siddheshsunilpote/Desktop/Learning_disability/learning_disability/backend/data/processed/phase2_handwriting_features.csv",
+  "models_dir": "/Users/siddheshsunilpote/Desktop/Learning_disability/learning_disability/backend/models/phase2_handwriting",
+  "dataset_stats": {
+    "input_rows": 952,
+    "extracted_rows": 952,
+    "skipped_rows": 0,
+    "label_counts": {
+      "yes": 485,
+      "no": 467
+    },
+    "condition_counts": {
+      "dyslexia": 485,
+      "normal": 467
+    },
+    "source_counts": {
+      "u5awan": 852,
+      "local_dyslexia": 100
+    }
+  },
+  "training": {
+    "labels": [
+      "dyslexia",
+      "normal"
+    ],
+    "selected_features": [
+      "age",
+      "handwriting_overall_score",
+      "image_sharpness",
+      "image_contrast",
+      "avg_letter_size",
+      "line_straightness",
+      "letter_spacing",
+      "word_spacing",
+      "writing_pressure",
+      "letter_formation_quality",
+      "slant_angle",
+      "consistency_score",
+      "contour_count",
+      "aspect_ratio",
+      "size_per_contour",
+      "spacing_ratio",
+      "quality_consistency",
+      "age_adj_pressure"
+    ],
+    "results": {
+      "random_forest": {
+        "history": {
+          "train_accuracy": 0.9802631578947368,
+          "val_accuracy": 0.8235294117647058
+        },
+        "metrics": {
+          "accuracy": 0.837696335078534,
+          "precision": 0.8387569066490078,
+          "recall": 0.837696335078534,
+          "f1_score": 0.8376518402832052,
+          "confusion_matrix": [
+            [
+              79,
+              18
+            ],
+            [
+              13,
+              81
+            ]
+          ],
+          "classification_report": {
+            "dyslexia": {
+              "precision": 0.8586956521739131,
+              "recall": 0.8144329896907216,
+              "f1-score": 0.8359788359788359,
+              "support": 97.0
+            },
+            "normal": {
+              "precision": 0.8181818181818182,
+              "recall": 0.8617021276595744,
+              "f1-score": 0.8393782383419689,
+              "support": 94.0
+            },
+            "accuracy": 0.837696335078534,
+            "macro avg": {
+              "precision": 0.8384387351778657,
+              "recall": 0.838067558675148,
+              "f1-score": 0.8376785371604024,
+              "support": 191.0
+            },
+            "weighted avg": {
+              "precision": 0.8387569066490078,
+              "recall": 0.837696335078534,
+              "f1-score": 0.8376518402832052,
+              "support": 191.0
+            }
+          },
+          "cv_mean": 0.7645074224021592,
+          "cv_std": 0.04639314184029238
+        },
+        "model_path": "/Users/siddheshsunilpote/Desktop/Learning_disability/learning_disability/backend/models/phase2_handwriting/random_forest_20260315_234131.pkl"
+      }
+    },
+    "best_model": "random_forest",
+    "best_accuracy": 0.837696335078534,
+    "best_f1": 0.8376518402832052
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "model_type": "svm",
+  "created": "20260312_170710",
+  "is_trained": true,
+  "history": {
+    "train_accuracy": 0.9997395833333333,
+    "val_accuracy": 1.0
+  }
+}

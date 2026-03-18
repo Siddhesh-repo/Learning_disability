@@ -1,0 +1,107 @@
+{
+  "phase": "phase4_fusion",
+  "created_at": "2026-03-16T00:19:51.780719",
+  "data_source": "synthetic",
+  "rows": 3000,
+  "feature_dataset": "/Users/siddheshsunilpote/Desktop/Learning_disability/learning_disability/backend/data/processed/phase4_fusion_features.csv",
+  "models_dir": "/Users/siddheshsunilpote/Desktop/Learning_disability/learning_disability/backend/models/phase4_fusion",
+  "training": {
+    "labels": [
+      "dysgraphia",
+      "dyslexia",
+      "normal"
+    ],
+    "selected_features": [
+      "avg_letter_size",
+      "line_straightness",
+      "writing_pressure",
+      "letter_formation_quality",
+      "consistency_score",
+      "contour_count",
+      "reading_speed_wpm",
+      "pause_frequency",
+      "average_pause_duration",
+      "pronunciation_score",
+      "fluency_score",
+      "pitch_variation",
+      "speech_clarity",
+      "word_count",
+      "total_duration",
+      "quality_consistency",
+      "speech_quality",
+      "motor_language_link",
+      "overall_consistency",
+      "age_adj_reading"
+    ],
+    "best_model": "random_forest",
+    "best_accuracy": 1.0,
+    "best_f1": 1.0,
+    "results": {
+      "random_forest": {
+        "history": {
+          "train_accuracy": 1.0,
+          "val_accuracy": 1.0
+        },
+        "metrics": {
+          "accuracy": 1.0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "confusion_matrix": [
+            [
+              200,
+              0,
+              0
+            ],
+            [
+              0,
+              200,
+              0
+            ],
+            [
+              0,
+              0,
+              200
+            ]
+          ],
+          "classification_report": {
+            "dysgraphia": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1-score": 1.0,
+              "support": 200.0
+            },
+            "dyslexia": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1-score": 1.0,
+              "support": 200.0
+            },
+            "normal": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1-score": 1.0,
+              "support": 200.0
+            },
+            "accuracy": 1.0,
+            "macro avg": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1-score": 1.0,
+              "support": 600.0
+            },
+            "weighted avg": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1-score": 1.0,
+              "support": 600.0
+            }
+          },
+          "cv_mean": 0.9949999999999999,
+          "cv_std": 0.006666666666666682
+        },
+        "model_path": "/Users/siddheshsunilpote/Desktop/Learning_disability/learning_disability/backend/models/phase4_fusion/random_forest_20260316_001951.pkl"
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "model_type": "random_forest",
+  "created": "20260315_235117",
+  "is_trained": true,
+  "history": {
+    "train_accuracy": 0.9921875,
+    "val_accuracy": 0.9427083333333334
+  }
+}

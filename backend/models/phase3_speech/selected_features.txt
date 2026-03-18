@@ -1,0 +1,15 @@
+reading_speed_wpm
+pause_frequency
+average_pause_duration
+pronunciation_score
+fluency_score
+volume_consistency
+pitch_variation
+speech_clarity
+word_count
+total_duration
+age
+reading_efficiency
+speech_quality
+words_per_second
+age_adj_reading

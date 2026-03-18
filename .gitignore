@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+venv/
+env/
+.venv/
+
+# Models and data (large files)
+backend/models/*.pkl
+backend/models/*.joblib
+backend/models/visualizations/
+backend/data/processed/
+backend/data/raw/
+!backend/models/.gitkeep
+!backend/data/.gitkeep
+
+# Environment
+.env
+*.env.local
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+frontend/build/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Testing
+htmlcov/
+.coverage
+.pytest_cache/
+backend/data/

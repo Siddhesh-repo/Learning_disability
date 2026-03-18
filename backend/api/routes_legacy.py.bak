@@ -1,0 +1,573 @@
+"""
+API routes blueprint.
+
+All endpoints are prefixed with /api (set in app.py).
+"""
+import os
+import uuid
+import logging
+import tempfile
+from pathlib import Path
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+import joblib
+from flask import Blueprint, request, jsonify
+from werkzeug.utils import secure_filename
+
+from config import Config
+from api.schemas import (
+    validate_predict_request,
+    validate_file_extension,
+    validate_speech_predict_request,
+    validate_fusion_predict_request,
+)
+from cv.handwriting_analyzer import HandwritingAnalyzer
+from nlp.speech_analyzer import SpeechAnalyzer
+from ml.disability_predictor import DisabilityPredictor
+from ml.feature_engineering import FeatureEngineer
+from ml.recommendation_engine import RecommendationEngine
+from ml.explainability import explain_prediction
+from utils.audio_utils import convert_to_wav
+
+logger = logging.getLogger(__name__)
+
+api_bp = Blueprint("api", __name__)
+
+# ── Singleton analysers (created once) ───────────────────
+handwriting_analyzer = HandwritingAnalyzer()
+speech_analyzer = SpeechAnalyzer()
+
+# ML objects loaded lazily
+_predictor: DisabilityPredictor | None = None
+_engineer: FeatureEngineer | None = None
+_label_encoder = None
+_recommender: RecommendationEngine | None = None
+
+# Phase 2 handwriting-only bundle
+_phase2_predictor: DisabilityPredictor | None = None
+_phase2_engineer: FeatureEngineer | None = None
+_phase2_label_encoder = None
+
+# Phase 3 speech-only bundle
+_phase3_predictor: DisabilityPredictor | None = None
+_phase3_engineer: FeatureEngineer | None = None
+_phase3_label_encoder = None
+
+# Phase 4 fusion bundle
+_phase4_predictor: DisabilityPredictor | None = None
+_phase4_engineer: FeatureEngineer | None = None
+_phase4_label_encoder = None
+
+
+def _load_models():
+    """Load trained ML artefacts into module-level singletons."""
+    global _predictor, _engineer, _label_encoder, _recommender
+
+    models_dir = Config.MODELS_DIR
+    if not models_dir.exists():
+        logger.warning("Models directory not found: %s", models_dir)
+        return False
+
+    try:
+        _engineer = FeatureEngineer()
+        _engineer.load(models_dir)
+        _label_encoder = _engineer.label_encoder
+
+        # Find model file
+        best_txt = models_dir / "best_model.txt"
+        if best_txt.exists():
+            lines = best_txt.read_text().strip().splitlines()
+            model_file = lines[1].split(": ", 1)[1].strip()
+        else:
+            pkls = sorted(
+                [f for f in models_dir.iterdir()
+                 if f.suffix == ".pkl" and "scaler" not in f.name
+                 and "encoder" not in f.name and "selector" not in f.name],
+                key=lambda f: f.stat().st_mtime, reverse=True,
+            )
+            if not pkls:
+                logger.error("No model .pkl files found in %s", models_dir)
+                return False
+            model_file = pkls[0].name
+
+        model_path = models_dir / model_file
+        _predictor = DisabilityPredictor()
+        _predictor.load(model_path)
+
+        _recommender = RecommendationEngine()
+
+        logger.info("Models loaded: %s", model_file)
+        return True
+
+    except Exception:
+        logger.exception("Failed to load models")
+        return False
+
+
+def _load_model_bundle(bundle_dir: Path, bundle_name: str):
+    """Load predictor + feature engineer + label encoder for a phase bundle."""
+    if not bundle_dir.exists():
+        logger.info("%s models directory not found: %s", bundle_name, bundle_dir)
+        return None, None, None
+
+    try:
+        engineer = FeatureEngineer()
+        engineer.load(bundle_dir)
+        label_encoder = engineer.label_encoder
+
+        best_txt = bundle_dir / "best_model.txt"
+        if best_txt.exists():
+            lines = best_txt.read_text().strip().splitlines()
+            model_file = lines[1].split(": ", 1)[1].strip()
+        else:
+            pkls = sorted(
+                [f for f in bundle_dir.iterdir()
+                 if f.suffix == ".pkl" and "scaler" not in f.name
+                 and "encoder" not in f.name and "selector" not in f.name],
+                key=lambda f: f.stat().st_mtime, reverse=True,
+            )
+            if not pkls:
+                logger.warning("No %s model .pkl found in %s", bundle_name, bundle_dir)
+                return None, None, None
+            model_file = pkls[0].name
+
+        predictor = DisabilityPredictor()
+        predictor.load(bundle_dir / model_file)
+        logger.info("%s model loaded: %s", bundle_name, model_file)
+        return predictor, engineer, label_encoder
+    except Exception:
+        logger.exception("Failed to load %s model bundle", bundle_name)
+        return None, None, None
+
+
+def _load_phase2_handwriting_models() -> bool:
+    """Load Phase 2 handwriting-only model artifacts if available."""
+    global _phase2_predictor, _phase2_engineer, _phase2_label_encoder
+
+    phase2_dir = Config.MODELS_DIR / "phase2_handwriting"
+    _phase2_predictor, _phase2_engineer, _phase2_label_encoder = _load_model_bundle(
+        phase2_dir, "Phase 2 handwriting"
+    )
+    return _phase2_predictor is not None
+
+
+def _load_phase3_speech_models() -> bool:
+    """Load Phase 3 speech-only model artifacts if available."""
+    global _phase3_predictor, _phase3_engineer, _phase3_label_encoder
+
+    phase3_dir = Config.MODELS_DIR / "phase3_speech"
+    _phase3_predictor, _phase3_engineer, _phase3_label_encoder = _load_model_bundle(
+        phase3_dir, "Phase 3 speech"
+    )
+    return _phase3_predictor is not None
+
+
+def _load_phase4_fusion_models() -> bool:
+    """Load Phase 4 fusion model artifacts if available."""
+    global _phase4_predictor, _phase4_engineer, _phase4_label_encoder
+
+    phase4_dir = Config.MODELS_DIR / "phase4_fusion"
+    _phase4_predictor, _phase4_engineer, _phase4_label_encoder = _load_model_bundle(
+        phase4_dir, "Phase 4 fusion"
+    )
+    return _phase4_predictor is not None
+
+
+# Attempt to load on import
+_models_ready = _load_models()
+_phase2_models_ready = _load_phase2_handwriting_models()
+_phase3_models_ready = _load_phase3_speech_models()
+_phase4_models_ready = _load_phase4_fusion_models()
+
+
+# ── Helpers ──────────────────────────────────────────────
+def _to_native(val):
+    """Convert numpy types to Python builtins for JSON serialisation."""
+    if isinstance(val, (np.integer,)):
+        return int(val)
+    if isinstance(val, (np.floating,)):
+        return float(val)
+    if isinstance(val, np.ndarray):
+        return val.tolist()
+    return val
+
+
+# ══════════════════════════════════════════════════════════
+# ENDPOINTS
+# ══════════════════════════════════════════════════════════
+
+@api_bp.route("/health", methods=["GET"])
+def health():
+    return jsonify({
+        "status": "healthy",
+        "models_loaded": _predictor is not None,
+        "phase2_loaded": _phase2_predictor is not None,
+        "phase3_loaded": _phase3_predictor is not None,
+        "phase4_loaded": _phase4_predictor is not None,
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
+# ── Handwriting ──────────────────────────────────────────
+@api_bp.route("/analyze/handwriting", methods=["POST"])
+def analyze_handwriting():
+    if "image" not in request.files:
+        return jsonify({"error": "No image file provided."}), 400
+
+    file = request.files["image"]
+    ok, msg = validate_file_extension(
+        file.filename or "", Config.ALLOWED_IMAGE_EXTENSIONS)
+    if not ok:
+        return jsonify({"error": msg}), 400
+
+    tmp = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.png")
+    file.save(tmp)
+    try:
+        quality = handwriting_analyzer.check_image_quality(tmp)
+        features = handwriting_analyzer.extract_features(tmp)
+        score = handwriting_analyzer.calculate_overall_score(features)
+
+        return jsonify({
+            "analysis_id": str(uuid.uuid4()),
+            "features": {k: _to_native(v) for k, v in features.to_dict().items()},
+            "overall_score": round(score, 1),
+            "quality": {
+                "is_acceptable": quality.is_acceptable,
+                "warnings": quality.warnings,
+            },
+            "status": "success",
+        })
+    except Exception as exc:
+        logger.exception("Handwriting analysis failed")
+        return jsonify({"error": str(exc)}), 500
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+# ── Speech ───────────────────────────────────────────────
+@api_bp.route("/analyze/speech", methods=["POST"])
+def analyze_speech():
+    if "audio" not in request.files:
+        return jsonify({"error": "No audio file provided."}), 400
+
+    file = request.files["audio"]
+    filename = secure_filename(file.filename or "recording.webm")
+    ext = filename.rsplit(".", 1)[1].lower() if "." in filename else "webm"
+
+    ok, msg = validate_file_extension(filename, Config.ALLOWED_AUDIO_EXTENSIONS)
+    if not ok:
+        return jsonify({"error": msg}), 400
+
+    reference_text = request.form.get("referenceText", "")
+
+    tmp = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.{ext}")
+    wav_path = None
+    file.save(tmp)
+
+    try:
+        analysis_path = tmp
+        if ext != "wav":
+            wav_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.wav")
+            convert_to_wav(tmp, wav_path)
+            analysis_path = wav_path
+
+        quality = speech_analyzer.check_audio_quality(analysis_path)
+        features = speech_analyzer.analyze(analysis_path, reference_text)
+
+        feat_dict = features.to_dict()
+        feat_dict.pop("transcript", None)
+
+        return jsonify({
+            "analysis_id": str(uuid.uuid4()),
+            "features": {k: _to_native(v) for k, v in feat_dict.items()},
+            "transcript": features.transcript,
+            "overall_score": round(features.confidence_score, 2),
+            "quality": {
+                "is_acceptable": quality.is_acceptable,
+                "warnings": quality.warnings,
+            },
+            "status": "success",
+        })
+    except Exception as exc:
+        logger.exception("Speech analysis failed")
+        return jsonify({"error": str(exc)}), 500
+    finally:
+        for p in (tmp, wav_path):
+            if p and os.path.exists(p):
+                os.remove(p)
+
+
+# ── Prediction ───────────────────────────────────────────
+@api_bp.route("/predict", methods=["POST"])
+def predict():
+    if _predictor is None:
+        return jsonify({
+            "error": "ML models not loaded. Run: python train.py",
+        }), 503
+
+    data = request.get_json(silent=True)
+    ok, msg = validate_predict_request(data)
+    if not ok:
+        return jsonify({"error": msg}), 400
+
+    hw = data.get("handwriting_features", {})
+    sp = data.get("speech_features", {})
+    age = data.get("age", 8)
+
+    try:
+        feature_dict = {**hw, **sp, "age": age}
+        input_df = pd.DataFrame([feature_dict])
+        X = _engineer.transform(input_df)
+
+        pred_idx = _predictor.predict(X)[0]
+        proba = _predictor.predict_proba(X)[0]
+
+        label = _label_encoder.inverse_transform([pred_idx])[0]
+        prob_dict = {
+            lbl: round(float(p), 4)
+            for lbl, p in zip(_label_encoder.classes_, proba)
+        }
+        confidence = float(max(proba))
+
+        # Recommendations
+        recs = _recommender.generate(label, prob_dict, age)
+
+        # Explainability
+        imp = _predictor.feature_importance(_engineer.selected_features)
+        explanation = explain_prediction(
+            feature_values=feature_dict,
+            feature_importances=imp,
+            predicted_condition=label,
+            confidence=confidence,
+        )
+
+        return jsonify({
+            "student_id": data.get("student_id", ""),
+            "student_name": data.get("student_name", ""),
+            "timestamp": datetime.now().isoformat(),
+            "prediction": {
+                "condition": label,
+                "confidence": round(confidence, 4),
+                "probabilities": prob_dict,
+            },
+            "explanation": explanation,
+            "recommendations": recs,
+        })
+
+    except Exception as exc:
+        logger.exception("Prediction failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@api_bp.route("/predict/handwriting-phase2", methods=["POST"])
+def predict_handwriting_phase2():
+    """Run handwriting-only prediction using Phase 2 model artifacts."""
+    if _phase2_predictor is None:
+        return jsonify({
+            "error": "Phase 2 handwriting model not loaded. Run: python train_phase2_handwriting.py",
+        }), 503
+
+    if "image" not in request.files:
+        return jsonify({"error": "No image file provided."}), 400
+
+    file = request.files["image"]
+    ok, msg = validate_file_extension(file.filename or "", Config.ALLOWED_IMAGE_EXTENSIONS)
+    if not ok:
+        return jsonify({"error": msg}), 400
+
+    age_raw = request.form.get("age", 8)
+    try:
+        age = int(age_raw)
+    except (ValueError, TypeError):
+        age = 8
+
+    tmp = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.png")
+    file.save(tmp)
+
+    try:
+        quality = handwriting_analyzer.check_image_quality(tmp)
+        features = handwriting_analyzer.extract_features(tmp)
+        overall_score = handwriting_analyzer.calculate_overall_score(features)
+
+        feature_dict = {
+            **features.to_dict(),
+            "age": age,
+            "handwriting_overall_score": overall_score,
+            "image_sharpness": quality.sharpness,
+            "image_contrast": quality.contrast,
+        }
+        X = _phase2_engineer.transform(pd.DataFrame([feature_dict]))
+
+        pred_idx = _phase2_predictor.predict(X)[0]
+        proba = _phase2_predictor.predict_proba(X)[0]
+        label = _phase2_label_encoder.inverse_transform([pred_idx])[0]
+
+        probabilities = {
+            lbl: round(float(p), 4)
+            for lbl, p in zip(_phase2_label_encoder.classes_, proba)
+        }
+        confidence = float(max(proba))
+
+        imp = _phase2_predictor.feature_importance(_phase2_engineer.selected_features)
+        explanation = explain_prediction(
+            feature_values=feature_dict,
+            feature_importances=imp,
+            predicted_condition=label,
+            confidence=confidence,
+        )
+
+        recs = _recommender.generate(label, probabilities, age) if _recommender else {}
+
+        return jsonify({
+            "analysis_id": str(uuid.uuid4()),
+            "timestamp": datetime.now().isoformat(),
+            "prediction": {
+                "condition": label,
+                "confidence": round(confidence, 4),
+                "probabilities": probabilities,
+            },
+            "features": {k: _to_native(v) for k, v in feature_dict.items()},
+            "quality": {
+                "is_acceptable": quality.is_acceptable,
+                "warnings": quality.warnings,
+            },
+            "explanation": explanation,
+            "recommendations": recs,
+        })
+    except Exception as exc:
+        logger.exception("Phase 2 handwriting prediction failed")
+        return jsonify({"error": str(exc)}), 500
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+@api_bp.route("/predict/speech-phase3", methods=["POST"])
+def predict_speech_phase3():
+    """Run speech-only prediction using Phase 3 model artifacts."""
+    if _phase3_predictor is None:
+        return jsonify({
+            "error": "Phase 3 speech model not loaded. Run: python train_phase3_speech.py",
+        }), 503
+
+    data = request.get_json(silent=True)
+    ok, msg = validate_speech_predict_request(data)
+    if not ok:
+        return jsonify({"error": msg}), 400
+
+    age = int(data.get("age", 8))
+    sp = data.get("speech_features", {})
+
+    try:
+        feature_dict = {**sp, "age": age}
+        X = _phase3_engineer.transform(pd.DataFrame([feature_dict]))
+
+        pred_idx = _phase3_predictor.predict(X)[0]
+        proba = _phase3_predictor.predict_proba(X)[0]
+        label = _phase3_label_encoder.inverse_transform([pred_idx])[0]
+
+        probabilities = {
+            lbl: round(float(p), 4)
+            for lbl, p in zip(_phase3_label_encoder.classes_, proba)
+        }
+        confidence = float(max(proba))
+
+        imp = _phase3_predictor.feature_importance(_phase3_engineer.selected_features)
+        explanation = explain_prediction(
+            feature_values=feature_dict,
+            feature_importances=imp,
+            predicted_condition=label,
+            confidence=confidence,
+        )
+        recs = _recommender.generate(label, probabilities, age) if _recommender else {}
+
+        return jsonify({
+            "analysis_id": str(uuid.uuid4()),
+            "timestamp": datetime.now().isoformat(),
+            "prediction": {
+                "condition": label,
+                "confidence": round(confidence, 4),
+                "probabilities": probabilities,
+            },
+            "features": {k: _to_native(v) for k, v in feature_dict.items()},
+            "explanation": explanation,
+            "recommendations": recs,
+        })
+    except Exception as exc:
+        logger.exception("Phase 3 speech prediction failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@api_bp.route("/predict/fusion-phase4", methods=["POST"])
+def predict_fusion_phase4():
+    """Run multimodal fusion prediction using Phase 4 model artifacts."""
+    if _phase4_predictor is None:
+        return jsonify({
+            "error": "Phase 4 fusion model not loaded. Run: python train_phase4_fusion.py",
+        }), 503
+
+    data = request.get_json(silent=True)
+    ok, msg = validate_fusion_predict_request(data)
+    if not ok:
+        return jsonify({"error": msg}), 400
+
+    hw = data.get("handwriting_features", {})
+    sp = data.get("speech_features", {})
+    age = int(data.get("age", 8))
+    hw_w = float(data.get("handwriting_weight", 0.5))
+    sp_w = float(data.get("speech_weight", 0.5))
+
+    # Normalize provided weights to keep deterministic behavior.
+    weight_sum = hw_w + sp_w
+    hw_w = hw_w / weight_sum
+    sp_w = sp_w / weight_sum
+
+    try:
+        feature_dict = {**hw, **sp, "age": age}
+        X = _phase4_engineer.transform(pd.DataFrame([feature_dict]))
+
+        pred_idx = _phase4_predictor.predict(X)[0]
+        proba = _phase4_predictor.predict_proba(X)[0]
+        label = _phase4_label_encoder.inverse_transform([pred_idx])[0]
+
+        probabilities = {
+            lbl: round(float(p), 4)
+            for lbl, p in zip(_phase4_label_encoder.classes_, proba)
+        }
+        confidence = float(max(proba))
+
+        imp = _phase4_predictor.feature_importance(_phase4_engineer.selected_features)
+        explanation = explain_prediction(
+            feature_values=feature_dict,
+            feature_importances=imp,
+            predicted_condition=label,
+            confidence=confidence,
+        )
+        recs = _recommender.generate(label, probabilities, age) if _recommender else {}
+
+        return jsonify({
+            "analysis_id": str(uuid.uuid4()),
+            "timestamp": datetime.now().isoformat(),
+            "fusion": {
+                "handwriting_weight": round(hw_w, 4),
+                "speech_weight": round(sp_w, 4),
+            },
+            "prediction": {
+                "condition": label,
+                "confidence": round(confidence, 4),
+                "probabilities": probabilities,
+            },
+            "features": {
+                "handwriting_features": {k: _to_native(v) for k, v in hw.items()},
+                "speech_features": {k: _to_native(v) for k, v in sp.items()},
+                "age": age,
+            },
+            "explanation": explanation,
+            "recommendations": recs,
+        })
+    except Exception as exc:
+        logger.exception("Phase 4 fusion prediction failed")
+        return jsonify({"error": str(exc)}), 500

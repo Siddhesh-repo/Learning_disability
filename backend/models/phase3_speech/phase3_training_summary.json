@@ -1,0 +1,88 @@
+{
+  "phase": "phase3_speech",
+  "created_at": "2026-03-16T00:19:50.495224",
+  "data_source": "real",
+  "rows": 50,
+  "feature_dataset": "/Users/siddheshsunilpote/Desktop/Learning_disability/learning_disability/backend/data/processed/phase3_speech_features.csv",
+  "models_dir": "/Users/siddheshsunilpote/Desktop/Learning_disability/learning_disability/backend/models/phase3_speech",
+  "training": {
+    "labels": [
+      "dyslexia",
+      "normal"
+    ],
+    "selected_features": [
+      "reading_speed_wpm",
+      "pause_frequency",
+      "average_pause_duration",
+      "pronunciation_score",
+      "fluency_score",
+      "volume_consistency",
+      "pitch_variation",
+      "speech_clarity",
+      "word_count",
+      "total_duration",
+      "age",
+      "reading_efficiency",
+      "speech_quality",
+      "words_per_second",
+      "age_adj_reading"
+    ],
+    "best_model": "random_forest",
+    "best_accuracy": 1.0,
+    "best_f1": 1.0,
+    "results": {
+      "random_forest": {
+        "history": {
+          "train_accuracy": 1.0,
+          "val_accuracy": 1.0
+        },
+        "metrics": {
+          "accuracy": 1.0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "confusion_matrix": [
+            [
+              5,
+              0
+            ],
+            [
+              0,
+              5
+            ]
+          ],
+          "classification_report": {
+            "dyslexia": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1-score": 1.0,
+              "support": 5.0
+            },
+            "normal": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1-score": 1.0,
+              "support": 5.0
+            },
+            "accuracy": 1.0,
+            "macro avg": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1-score": 1.0,
+              "support": 10.0
+            },
+            "weighted avg": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1-score": 1.0,
+              "support": 10.0
+            }
+          },
+          "cv_mean": 1.0,
+          "cv_std": 0.0
+        },
+        "model_path": "/Users/siddheshsunilpote/Desktop/Learning_disability/learning_disability/backend/models/phase3_speech/random_forest_20260316_001950.pkl"
+      }
+    }
+  }
+}
